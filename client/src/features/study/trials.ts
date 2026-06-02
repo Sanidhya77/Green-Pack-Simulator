@@ -19,11 +19,17 @@ export type TrialDefinition = {
   options: TrialOption[];
 };
 
+const JUICE_IMAGE_PATHS = [
+  "/assets/products/Low_Sustainability_Juice.png",
+  "/assets/products/Medium_Sustainability_Juice.png",
+  "/assets/products/High_Sustainability_Juice.png",
+] as const;
+
 const products = [
   {
-    key: "detergent",
-    name: "Liquid Laundry Detergent",
-    description: "Campus-use detergent bottle, 2.2L.",
+    key: "juice",
+    name: "Apple Juice Bottle",
+    description: "Single-serve apple juice bottle for campus use.",
   },
   {
     key: "coldbrew",
@@ -79,7 +85,7 @@ type PriceRanges = {
 };
 
 const EUR_PRICE_RANGES: Record<string, PriceRanges> = {
-  detergent: { standard: [7.5, 10.0], recycled: [9.0, 12.5], fiber: [12.0, 16.0] },
+  juice: { standard: [0.99, 1.49], recycled: [1.19, 1.79], fiber: [1.49, 2.19] },
   grocerybag: { standard: [0.79, 1.49], recycled: [3.5, 5.99], fiber: [6.5, 10.99] },
   shampoo: { standard: [3.99, 5.99], recycled: [5.99, 8.49], fiber: [9.49, 12.99] },
   notebook: { standard: [10.99, 14.99], recycled: [12.99, 17.49], fiber: [14.99, 19.99] },
@@ -101,33 +107,40 @@ function buildOptions(_seed: number, productKey: string): TrialOption[] {
     recycled: [2.0, 3.0],
     fiber: [3.0, 4.0],
   };
+  const defaultImages = [
+    `/assets/products/${productKey}-standard.png`,
+    `/assets/products/${productKey}-recycled.png`,
+    `/assets/products/${productKey}-fiber.png`,
+  ] as const;
+  const images = productKey === "juice" ? JUICE_IMAGE_PATHS : defaultImages;
+
   return [
     {
       id: "plastic_standard",
       optionCode: "A",
-      packagingType: "Standard plastic",
+      packagingType: productKey === "juice" ? "Standard plastic bottle" : "Standard plastic",
       price: midpoint(ranges.standard),
       hasGreenLabel: false,
       sustainabilityScore: 36,
-      imagePath: `/assets/products/${productKey}-standard.png`,
+      imagePath: images[0],
     },
     {
       id: "recycled_mix",
       optionCode: "B",
-      packagingType: "Recycled-content plastic",
+      packagingType: productKey === "juice" ? "Recycled-content plastic bottle" : "Recycled-content plastic",
       price: midpoint(ranges.recycled),
       hasGreenLabel: true,
       sustainabilityScore: 63,
-      imagePath: `/assets/products/${productKey}-recycled.png`,
+      imagePath: images[1],
     },
     {
       id: "fiber_compostable",
       optionCode: "C",
-      packagingType: "Fiber-based compostable",
+      packagingType: productKey === "juice" ? "Fiber-based carton bottle" : "Fiber-based compostable",
       price: midpoint(ranges.fiber),
       hasGreenLabel: true,
       sustainabilityScore: 84,
-      imagePath: `/assets/products/${productKey}-fiber.png`,
+      imagePath: images[2],
     },
   ];
 }
