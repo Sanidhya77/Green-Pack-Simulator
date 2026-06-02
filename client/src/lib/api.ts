@@ -58,26 +58,30 @@ export const studyApi = {
 };
 
 export const aiApi = {
-  getTrialFeedback: (payload: {
+  getPartAReview: (payload: {
     sessionId: string;
-    part: StudyPart;
-    trialIndex: number;
-    productName: string;
-    productDescription: string;
-    selectedOptionId: string;
-    confidence: number;
-    reasonLabel: string;
-    reflection?: string;
-    options: Array<{
-      optionCode: string;
-      optionId: string;
-      packagingType: string;
-      price: number;
-      hasGreenLabel: boolean;
-      sustainabilityScore: number;
-      imageUrl: string;
-      imageDataUrl?: string;
+    trials: Array<{
+      trialIndex: number;
+      productName: string;
+      productDescription: string;
+      selectedOptionId: string;
+      confidence: number;
+      reasonLabel: string;
+      reflection?: string;
+      options: Array<{
+        optionCode: string;
+        optionId: string;
+        packagingType: string;
+        price: number;
+        hasGreenLabel: boolean;
+        sustainabilityScore: number;
+        imageUrl: string;
+        imageDataUrl?: string;
+      }>;
     }>;
   }) =>
-    send<{ impactAnalysis: string; usedFallback?: boolean }>("/api/ai/trial-feedback", payload),
+    send<{ items: Array<{ trialIndex: number; explanation: string }>; usedFallback?: boolean }>(
+      "/api/ai/part-a-review",
+      payload,
+    ),
 };

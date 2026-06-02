@@ -1,21 +1,35 @@
 import { useMemo, useState } from "react";
 import { aiApi, studyApi } from "../../lib/api";
 import { loadImageDataUrl } from "../../lib/productImages";
-import { REASON_OPTIONS, TRIALS, type ReasonValue, type TrialOption } from "./trials";
+import {
+  buildComparisonTable,
+  buildTrialRecord,
+  computePartMetrics,
+  reasonLabel,
+  type TrialRecord,
+} from "./studyMetrics";
+import {
+  PART_A_TRIAL_COUNT,
+  PART_B_TRIAL_COUNT,
+  partAEndTrialIndex,
+  partBStartTrialIndex,
+  REASON_OPTIONS,
+  TRIALS,
+  type ReasonValue,
+  type TrialOption,
+} from "./trials";
 
-type Stage = "consent" | "trial" | "break" | "final";
-type PostChoiceStep = "questions" | "impact";
+type Stage = "consent" | "trial" | "partAReview" | "partBIntro" | "final";
 
-type FeedbackEntry = {
-  reason: ReasonValue;
-  part: "A";
+type PartAReviewCard = {
+  trialIndex: number;
+  productName: string;
+  optionCode: string;
+  imagePath: string;
+  packagingType: string;
+  price: number;
+  explanation: string;
 };
-
-function scoreLabel(score: number): string {
-  if (score >= 75) return "High environmental performance";
-  if (score >= 55) return "Moderate environmental performance";
-  return "Lower environmental performance";
-}
 
 export function StudyFlow() {
   const [stage, setStage] = useState<Stage>("consent");
@@ -24,37 +38,30 @@ export function StudyFlow() {
   const [participantCode, setParticipantCode] = useState("");
   const [consentChecked, setConsentChecked] = useState(false);
   const [selectedOption, setSelectedOption] = useState<TrialOption | null>(null);
-  const [postChoiceStep, setPostChoiceStep] = useState<PostChoiceStep | null>(null);
   const [reason, setReason] = useState<ReasonValue>("price");
   const [confidence, setConfidence] = useState(3);
   const [reflection, setReflection] = useState("");
-  const [impactAnalysis, setImpactAnalysis] = useState("");
-  const [aiLoading, setAiLoading] = useState(false);
+  const [trialHistory, setTrialHistory] = useState<TrialRecord[]>([]);
+  const [partAReviewCards, setPartAReviewCards] = useState<PartAReviewCard[]>([]);
+  const [partAReviewLoading, setPartAReviewLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [feedbackEntries, setFeedbackEntries] = useState<FeedbackEntry[]>([]);
 
   const trial = TRIALS[trialIndex];
+  const partAEndIndex = partAEndTrialIndex();
+  const partBStartIndex = partBStartTrialIndex();
 
   const progressText = useMemo(() => {
-    const partTotal = TRIALS.length;
-    const inPart = trial ? trial.indexInPart + 1 : TRIALS.length;
-    const part = trial?.part ?? "A";
-    return `Part ${part} - Trial ${inPart}/${partTotal}`;
+    if (!trial) return "";
+    const total = trial.part === "A" ? PART_A_TRIAL_COUNT : PART_B_TRIAL_COUNT;
+    return `Part ${trial.part} — Trial ${trial.indexInPart + 1}/${total}`;
   }, [trial]);
 
-  const activePostChoiceStep: PostChoiceStep = postChoiceStep ?? "questions";
-
-  const postChoiceStepLabel = useMemo(() => {
-    if (!selectedOption) return "1";
-    if (activePostChoiceStep === "questions") return "2";
-    return "3";
-  }, [selectedOption, activePostChoiceStep]);
-
-  const reasonLabel = useMemo(
-    () => REASON_OPTIONS.find((item) => item.value === reason)?.label ?? reason,
-    [reason],
-  );
+  const comparison = useMemo(() => {
+    const partA = trialHistory.filter((r) => r.part === "A");
+    const partB = trialHistory.filter((r) => r.part === "B");
+    return buildComparisonTable(computePartMetrics(partA), computePartMetrics(partB));
+  }, [trialHistory]);
 
   async function startStudy() {
     setError("");
@@ -74,8 +81,6 @@ export function StudyFlow() {
     if (!trial) return;
     setError("");
     setSelectedOption(option);
-    setPostChoiceStep("questions");
-    setImpactAnalysis("");
 
     try {
       setSaving(true);
@@ -92,16 +97,96 @@ export function StudyFlow() {
     } catch {
       setError("Could not save your choice. Please try again.");
       setSelectedOption(null);
-      setPostChoiceStep(null);
     } finally {
       setSaving(false);
     }
   }
 
-  async function seeImpact() {
+  async function buildPartAReviewPayload(record: TrialRecord) {
+    const trialDef = TRIALS.find((t) => t.part === "A" && t.indexInPart === record.trialIndex);
+    if (!trialDef) throw new Error("Trial not found");
+
+    const chosen = trialDef.options.find((o) => o.optionCode === record.optionCode);
+    if (!chosen) throw new Error("Option not found");
+
+    const optionsPayload = await Promise.all(
+      trialDef.options.map(async (o) => ({
+        optionCode: o.optionCode,
+        optionId: o.id,
+        packagingType: o.packagingType,
+        price: o.price,
+        hasGreenLabel: o.hasGreenLabel,
+        sustainabilityScore: o.sustainabilityScore,
+        imageUrl: o.imagePath,
+        imageDataUrl: await loadImageDataUrl(o.imagePath),
+      })),
+    );
+
+    return {
+      trialIndex: record.trialIndex,
+      productName: trialDef.productName,
+      productDescription: trialDef.productDescription,
+      selectedOptionId: chosen.id,
+      confidence: record.confidence,
+      reasonLabel: reasonLabel(record.reason),
+      options: optionsPayload,
+    };
+  }
+
+  async function loadPartAReview(records: TrialRecord[]) {
+    setPartAReviewLoading(true);
+    setError("");
+
+    try {
+      const trialsPayload = await Promise.all(records.map((r) => buildPartAReviewPayload(r)));
+      const review = await aiApi.getPartAReview({ sessionId, trials: trialsPayload });
+
+      const cards: PartAReviewCard[] = records.map((record) => {
+        const trialDef = TRIALS.find((t) => t.part === "A" && t.indexInPart === record.trialIndex)!;
+        const chosen = trialDef.options.find((o) => o.optionCode === record.optionCode)!;
+        const explanation =
+          review.items.find((i) => i.trialIndex === record.trialIndex)?.explanation ??
+          "Explanation unavailable.";
+        return {
+          trialIndex: record.trialIndex,
+          productName: record.productName,
+          optionCode: record.optionCode,
+          imagePath: chosen.imagePath,
+          packagingType: record.packagingType,
+          price: record.price,
+          explanation,
+        };
+      });
+
+      setPartAReviewCards(cards);
+      if (review.usedFallback) {
+        setError("Some explanations use backup text because AI could not run. Check server and API key.");
+      }
+    } catch {
+      setError("Could not load Part A review. Check that the backend is running.");
+      setPartAReviewCards(
+        records.map((record) => {
+          const trialDef = TRIALS.find((t) => t.part === "A" && t.indexInPart === record.trialIndex)!;
+          const chosen = trialDef.options.find((o) => o.optionCode === record.optionCode)!;
+          return {
+            trialIndex: record.trialIndex,
+            productName: record.productName,
+            optionCode: record.optionCode,
+            imagePath: chosen.imagePath,
+            packagingType: record.packagingType,
+            price: record.price,
+            explanation: `You chose Option ${record.optionCode} (${record.packagingType}) at €${record.price.toFixed(2)}. Sustainability rank #${record.sustainabilityRank} of 3.`,
+          };
+        }),
+      );
+    } finally {
+      setPartAReviewLoading(false);
+    }
+  }
+
+  async function finishTrialQuestions() {
     if (!trial || !selectedOption) return;
     setError("");
-    setAiLoading(true);
 
     try {
       setSaving(true);
@@ -114,91 +199,46 @@ export function StudyFlow() {
         reflection: reflection.trim() || undefined,
       });
 
-      if (trial.part === "A") {
-        const optionsPayload = await Promise.all(
-          trial.options.map(async (o) => ({
-            optionCode: o.optionCode,
-            optionId: o.id,
-            packagingType: o.packagingType,
-            price: o.price,
-            hasGreenLabel: o.hasGreenLabel,
-            sustainabilityScore: o.sustainabilityScore,
-            imageUrl: o.imagePath,
-            imageDataUrl: await loadImageDataUrl(o.imagePath),
-          })),
-        );
+      const record = buildTrialRecord(trial, selectedOption, reason, confidence);
+      const newHistory = [...trialHistory, record];
+      setTrialHistory(newHistory);
+      resetTrialState();
 
-        const ai = await aiApi.getTrialFeedback({
-          sessionId,
-          part: trial.part,
-          trialIndex: trial.indexInPart,
-          productName: trial.productName,
-          productDescription: trial.productDescription,
-          selectedOptionId: selectedOption.id,
-          confidence,
-          reasonLabel,
-          reflection: reflection.trim() || undefined,
-          options: optionsPayload,
-        });
-        setImpactAnalysis(ai.impactAnalysis);
-        if (ai.usedFallback) {
-          setError("Impact summary is based on study data because AI could not run. Check server and API key.");
-        }
-      } else {
-        const sorted = [...trial.options].sort((a, b) => b.sustainabilityScore - a.sustainabilityScore);
-        const rank = sorted.findIndex((o) => o.id === selectedOption.id) + 1;
-        setImpactAnalysis(
-          `You chose Option ${selectedOption.optionCode}. It ranks #${rank} of 3 for sustainability in this trial. Your main reason was "${reasonLabel}" (confidence ${confidence}/5).`,
-        );
-      }
-
-      setPostChoiceStep("impact");
-    } catch {
-      setError("Could not load impact analysis. Check that the backend is running on port 4000.");
-    } finally {
-      setSaving(false);
-      setAiLoading(false);
-    }
-  }
-
-  async function continueToNextTrial() {
-    if (!trial || !selectedOption) return;
-    setError("");
-
-    const nextEntries: FeedbackEntry[] = [...feedbackEntries, { reason, part: "A" }];
-    setFeedbackEntries(nextEntries);
-
-    try {
-      setSaving(true);
-      if (trialIndex === TRIALS.length - 1) {
-        await studyApi.submitSummary({
-          sessionId,
-          priceFocusCount: nextEntries.filter((e) => e.reason === "price").length,
-          sustainabilityFocusCount: nextEntries.filter((e) => e.reason === "sustainability").length,
-          labelFocusCount: nextEntries.filter((e) => e.reason === "label").length,
-          gutFocusCount: nextEntries.filter((e) => e.reason === "gut").length,
-        });
-        setStage("final");
-        resetTrialState();
+      if (trialIndex === partAEndIndex) {
+        setStage("partAReview");
+        await loadPartAReview(newHistory.filter((r) => r.part === "A"));
         return;
       }
 
-      moveToNextTrial();
+      if (trialIndex === TRIALS.length - 1) {
+        await submitFinalSummary(newHistory);
+        setStage("final");
+        return;
+      }
+
+      setTrialIndex((v) => v + 1);
     } catch {
-      setError("Could not continue to the next trial.");
+      setError("Could not save your responses. Please try again.");
     } finally {
       setSaving(false);
     }
+  }
+
+  async function submitFinalSummary(history: TrialRecord[]) {
+    await studyApi.submitSummary({
+      sessionId,
+      priceFocusCount: history.filter((r) => r.reason === "price").length,
+      sustainabilityFocusCount: history.filter((r) => r.reason === "sustainability").length,
+      labelFocusCount: history.filter((r) => r.reason === "label").length,
+      gutFocusCount: history.filter((r) => r.reason === "gut").length,
+    });
   }
 
   function resetTrialState() {
     setSelectedOption(null);
-    setPostChoiceStep(null);
-    setImpactAnalysis("");
     setReason("price");
     setConfidence(3);
     setReflection("");
-    setAiLoading(false);
   }
 
   function changeChoice() {
@@ -206,42 +246,34 @@ export function StudyFlow() {
     setError("");
   }
 
-  function moveToNextTrial() {
-    resetTrialState();
-    setTrialIndex((v) => v + 1);
+  function startPartB() {
+    setError("");
+    setStage("trial");
+    setTrialIndex(partBStartIndex);
   }
 
-  const sustainabilityRank = useMemo(() => {
-    if (!trial || !selectedOption) return null;
-    const sorted = [...trial.options].sort((a, b) => b.sustainabilityScore - a.sustainabilityScore);
-    return {
-      rank: sorted.findIndex((o) => o.id === selectedOption.id) + 1,
-      best: sorted[0],
-      worst: sorted[sorted.length - 1],
-    };
-  }, [trial, selectedOption]);
+  const trialStepLabel = selectedOption ? "Step 2 of 2" : "Step 1 of 2";
 
-  const headerMeta =
-    stage === "trial"
-      ? trial
-        ? selectedOption
-          ? `ROUND ${trial.indexInPart + 1} / 10\nSTEP ${postChoiceStepLabel} OF 3`
-          : `ROUND ${trial.indexInPart + 1} / 10\nSTEP 1 OF 3`
-        : "ROUND 10 / 10"
-      : "Scientific Study Build v1";
-
-  const layoutHeader = (
-    <header className="layout-topbar">
-      <div className="brand">
+  function studyBrand(showPilotMeta = false) {
+    return (
+      <div className="brand brand--compact">
         <div className="brand-mark">△</div>
         <div>
           <p className="brand-title">Packaging Choice Study</p>
-          <p className="brand-meta">RTU PILOT · RIGA · 2026</p>
+          {showPilotMeta ? <p className="brand-meta">RTU PILOT · RIGA · 2026</p> : null}
         </div>
       </div>
-      <p className="round-meta">{headerMeta}</p>
-    </header>
-  );
+    );
+  }
+
+  function unifiedHeaderTop(meta: string, showPilotMeta = false) {
+    return (
+      <div className="unified-header-top">
+        {studyBrand(showPilotMeta)}
+        <p className="unified-header-meta">{meta}</p>
+      </div>
+    );
+  }
 
   const pickPanel =
     trial && selectedOption ? (
@@ -261,7 +293,7 @@ export function StudyFlow() {
           <p>Price: €{selectedOption.price.toFixed(2)}</p>
           <p>{selectedOption.packagingType}</p>
         </div>
-        <button type="button" className="btn-link pick-change" disabled={saving || aiLoading} onClick={changeChoice}>
+        <button type="button" className="btn-link pick-change" disabled={saving} onClick={changeChoice}>
           Choose a different option
         </button>
       </aside>
@@ -270,30 +302,20 @@ export function StudyFlow() {
   if (stage === "consent") {
     return (
       <main className="study-shell">
-        {layoutHeader}
         <section className="study-card intro-grid">
+          <header className="unified-header unified-header--span">
+            {unifiedHeaderTop("Welcome · Pilot Study", true)}
+          </header>
           <div>
-            <p className="eyebrow">Welcome · Pilot Study</p>
             <h1 className="title">How do students evaluate packaging, eco-labels, and purchase decisions?</h1>
             <p className="subtext">
-              This RTU pilot focuses on sustainable packaging decisions in student-relevant products.
-              The full research protocol links baseline profiling, eco-label stimulus exposure, and behavioral
-              response analysis.
+              Part A: five packaging choices with AI feedback afterward. Part B: five more choices without AI.
             </p>
             <ul className="fact-list">
-              <li>10 total choices (Part A active; Part B currently paused)</li>
-              <li>Decision behavior capture (choice, confidence, reason, reflection)</li>
-              <li>You can stop at any time</li>
+              <li>10 total product choices</li>
+              <li>Confidence, reason, and reflection after each choice</li>
+              <li>Final summary compares Part A vs Part B</li>
             </ul>
-            <div className="protocol-summary-card">
-              <p className="eyebrow">RTU Research Protocol Context</p>
-              <p>This web module is the behavioral decision layer of the wider RTU protocol.</p>
-              <ul className="protocol-flow-list">
-                <li>Pre-survey and baseline attitudes (separate form)</li>
-                <li>Cultural profiling + eco-label stimulus exposure</li>
-                <li>Choice behavior analysis, paired with iMotions recordings</li>
-              </ul>
-            </div>
           </div>
           <aside className="consent-panel">
             <p className="eyebrow">Informed Consent</p>
@@ -303,8 +325,6 @@ export function StudyFlow() {
               <li>Reason and confidence after each choice</li>
               <li>Optional reflection notes</li>
             </ul>
-            <h3>What we do not record</h3>
-            <p>No personal identifiers are required in this app. Eye-tracking/EEG capture is handled in iMotions workflow.</p>
             <label className="checkbox-row">
               <input
                 type="checkbox"
@@ -338,19 +358,72 @@ export function StudyFlow() {
     );
   }
 
-  if (stage === "break") {
+  if (stage === "partAReview") {
     return (
       <main className="study-shell">
-        {layoutHeader}
         <section className="study-card">
-          <header className="study-header">
-            <p className="eyebrow">Break</p>
-            <h1 className="title">Part A complete</h1>
-            <p className="subtext">Part B is currently paused for this phase of testing.</p>
+          <header className="unified-header">
+            {unifiedHeaderTop("Part A · Review")}
+            <h1 className="title title--page">Your five choices — AI review</h1>
+            <p className="subtext">
+              Below is feedback on each product you selected in Part A. Take your time before continuing.
+            </p>
+          </header>
+
+          {partAReviewLoading ? (
+            <p className="subtext">Preparing feedback for your five choices...</p>
+          ) : (
+            <div className="part-a-review-list">
+              {partAReviewCards.map((card) => (
+                <article className="part-a-review-card" key={card.trialIndex}>
+                  <div className="part-a-review-image">
+                    <img src={card.imagePath} alt={card.productName} />
+                  </div>
+                  <div className="part-a-review-text">
+                    <h3>
+                      Trial {card.trialIndex + 1}: {card.productName}
+                    </h3>
+                    <p className="review-meta">
+                      You chose Option {card.optionCode} · €{card.price.toFixed(2)} · {card.packagingType}
+                    </p>
+                    <p className="ai-note-body">{card.explanation}</p>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+
+          <div className="button-row">
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={partAReviewLoading || partAReviewCards.length === 0}
+              onClick={() => setStage("partBIntro")}
+            >
+              Continue
+            </button>
+          </div>
+          {error ? <p className="subtext error-text">{error}</p> : null}
+        </section>
+      </main>
+    );
+  }
+
+  if (stage === "partBIntro") {
+    return (
+      <main className="study-shell">
+        <section className="study-card">
+          <header className="unified-header">
+            {unifiedHeaderTop("Part B · Intro")}
+            <h1 className="title title--page">Part B will now begin</h1>
+            <p className="subtext">
+              You will make five more packaging choices. There is no AI feedback during or after Part B. The same
+              questions (confidence, reason, reflection) follow each choice.
+            </p>
           </header>
           <div className="button-row">
-            <button type="button" className="btn-primary" onClick={() => setStage("final")}>
-              Continue
+            <button type="button" className="btn-primary" onClick={startPartB}>
+              Start Part B
             </button>
           </div>
         </section>
@@ -359,31 +432,44 @@ export function StudyFlow() {
   }
 
   if (stage === "final") {
-    const counts = {
-      price: feedbackEntries.filter((e) => e.reason === "price").length,
-      sustainability: feedbackEntries.filter((e) => e.reason === "sustainability").length,
-      label: feedbackEntries.filter((e) => e.reason === "label").length,
-      gut: feedbackEntries.filter((e) => e.reason === "gut").length,
-    };
-
-    const partA = feedbackEntries.filter((e) => e.part === "A" && e.reason === "sustainability").length;
-
     return (
       <main className="study-shell">
-        {layoutHeader}
         <section className="study-card">
-          <header className="study-header">
-            <p className="eyebrow">Study Complete</p>
-            <h1 className="title">Thank you for participating</h1>
-            <p className="subtext">Your response patterns are summarized below.</p>
+          <header className="unified-header">
+            {unifiedHeaderTop("Study complete")}
+            <h1 className="title title--page">Thank you for participating</h1>
+            <p className="subtext">
+              How your choices differed between Part A (before AI review) and Part B (after AI review).
+            </p>
           </header>
-          <ul>
-            <li>Price-focused choices: {counts.price}</li>
-            <li>Sustainability-focused choices: {counts.sustainability}</li>
-            <li>Label-driven choices: {counts.label}</li>
-            <li>Gut/habit choices: {counts.gut}</li>
-            <li>Sustainability-focused choices in Part A: {partA}</li>
-          </ul>
+
+          <div className="comparison-table-wrap">
+            <table className="comparison-table">
+              <thead>
+                <tr>
+                  <th>Measure</th>
+                  <th>Part A (1st 5)</th>
+                  <th>Part B (2nd 5)</th>
+                  <th>Change</th>
+                </tr>
+              </thead>
+              <tbody>
+                {comparison.map((row) => (
+                  <tr key={row.label}>
+                    <td>{row.label}</td>
+                    <td>{row.partA}</td>
+                    <td>{row.partB}</td>
+                    <td>{row.difference}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <p className="comparison-note">
+            Positive change on sustainability score or most sustainable picks suggests greener choices in Part B.
+            Lower gap vs best option also means closer to the greenest packaging in each trial.
+          </p>
         </section>
       </main>
     );
@@ -394,17 +480,19 @@ export function StudyFlow() {
   }
 
   return (
-    <main className="study-shell">
-      {layoutHeader}
-      <section className="study-card">
-        <header className="study-header">
-          <p className="eyebrow">{progressText}</p>
-          <h1 className="title">{trial.productName}</h1>
-          <p className="subtext">{trial.productDescription}</p>
+    <main className="study-shell study-shell--trial">
+      <section className="study-card study-card--trial">
+        <header className="unified-header unified-header--trial">
+          {unifiedHeaderTop(`${progressText} · ${trialStepLabel}`)}
+          <h1 className="title title--trial">{trial.productName}</h1>
+          <p className="subtext subtext--trial">{trial.productDescription}</p>
+          {trial.part === "B" ? (
+            <p className="subtext compact-text trial-hint">Part B — no AI feedback for these trials.</p>
+          ) : null}
         </header>
 
         {!selectedOption ? (
-          <div className="choice-grid">
+          <div className="choice-grid choice-grid--trial">
             {trial.options.map((option) => (
               <article className="choice-card" key={option.id}>
                 <div className="product-image-wrap">
@@ -435,114 +523,68 @@ export function StudyFlow() {
           <div className="post-choice-flow">
             <div className="feedback-layout">
               {pickPanel}
-
               <div className="feedback-box">
-                {activePostChoiceStep === "questions" ? (
-                  <div className="form-grid">
-                    <label className="question-label">How confident are you in this choice?</label>
-                    <div className="confidence-slider">
-                      <input
-                        type="range"
-                        min={1}
-                        max={5}
-                        step={1}
-                        value={confidence}
-                        onChange={(e) => setConfidence(Number(e.target.value))}
-                      />
-                      <div className="confidence-ticks" aria-hidden="true">
-                        {[1, 2, 3, 4, 5].map((point) => (
-                          <span key={point} className={`tick ${confidence === point ? "is-active" : ""}`} />
-                        ))}
-                      </div>
-                    </div>
-                    <div className="scale-labels">
-                      <span>Not at all</span>
-                      <span>A little</span>
-                      <span>Somewhat</span>
-                      <span>Confident</span>
-                      <span>Very confident</span>
-                    </div>
-
-                    <label className="question-label">What mattered most in your decision?</label>
-                    <div className="reason-card-grid">
-                      {REASON_OPTIONS.map((item) => (
-                        <button
-                          key={item.value}
-                          type="button"
-                          className={`reason-card ${reason === item.value ? "is-selected" : ""}`}
-                          onClick={() => setReason(item.value)}
-                        >
-                          {item.label}
-                        </button>
+                <div className="form-grid">
+                  <label className="question-label">How confident are you in this choice?</label>
+                  <div className="confidence-slider">
+                    <input
+                      type="range"
+                      min={1}
+                      max={5}
+                      step={1}
+                      value={confidence}
+                      onChange={(e) => setConfidence(Number(e.target.value))}
+                    />
+                    <div className="confidence-ticks" aria-hidden="true">
+                      {[1, 2, 3, 4, 5].map((point) => (
+                        <span key={point} className={`tick ${confidence === point ? "is-active" : ""}`} />
                       ))}
                     </div>
-
-                    <label className="field-label">
-                      Reflection (optional)
-                      <textarea
-                        value={reflection}
-                        rows={3}
-                        onChange={(e) => setReflection(e.target.value)}
-                        placeholder="Short note about your choice process..."
-                      />
-                    </label>
-
-                    <div className="button-row">
-                      <button
-                        type="button"
-                        className="btn-primary"
-                        disabled={saving || aiLoading}
-                        onClick={seeImpact}
-                      >
-                        {saving || aiLoading ? "Preparing impact..." : "See impact"}
-                      </button>
-                    </div>
                   </div>
-                ) : null}
+                  <div className="scale-labels">
+                    <span>Not at all</span>
+                    <span>A little</span>
+                    <span>Somewhat</span>
+                    <span>Confident</span>
+                    <span>Very confident</span>
+                  </div>
 
-                {activePostChoiceStep === "impact" ? (
-                  <>
-                    <section className="impact-panel inline-impact">
-                      <h3>Impact analysis</h3>
-                      <p className="ai-note-body">
-                        {impactAnalysis || "No impact analysis available."}
-                      </p>
-                      {sustainabilityRank ? (
-                        <ul>
-                          <li>
-                            Your choice ranks <strong>#{sustainabilityRank.rank}</strong> of 3 for sustainability (
-                            {scoreLabel(selectedOption.sustainabilityScore)}).
-                          </li>
-                          <li>
-                            Highest in trial: Option {sustainabilityRank.best.optionCode} (
-                            {sustainabilityRank.best.sustainabilityScore}/100)
-                          </li>
-                          <li>
-                            Lowest in trial: Option {sustainabilityRank.worst.optionCode} (
-                            {sustainabilityRank.worst.sustainabilityScore}/100)
-                          </li>
-                        </ul>
-                      ) : null}
-                    </section>
-                    <div className="button-row">
+                  <label className="question-label">What mattered most in your decision?</label>
+                  <div className="reason-card-grid">
+                    {REASON_OPTIONS.map((item) => (
                       <button
+                        key={item.value}
                         type="button"
-                        className="btn-secondary"
-                        disabled={saving || aiLoading}
-                        onClick={() => setPostChoiceStep("questions")}
+                        className={`reason-card ${reason === item.value ? "is-selected" : ""}`}
+                        onClick={() => setReason(item.value)}
                       >
-                        Back
+                        {item.label}
                       </button>
-                      <button type="button" className="btn-primary" disabled={saving || !impactAnalysis} onClick={continueToNextTrial}>
-                        {saving
-                          ? "Saving..."
+                    ))}
+                  </div>
+
+                  <label className="field-label">
+                    Reflection (optional)
+                    <textarea
+                      value={reflection}
+                      rows={3}
+                      onChange={(e) => setReflection(e.target.value)}
+                      placeholder="Short note about your choice process..."
+                    />
+                  </label>
+
+                  <div className="button-row">
+                    <button type="button" className="btn-primary" disabled={saving} onClick={finishTrialQuestions}>
+                      {saving
+                        ? "Saving..."
+                        : trialIndex === partAEndIndex
+                          ? "Finish Part A"
                           : trialIndex === TRIALS.length - 1
                             ? "Finish study"
                             : "Continue to next trial"}
-                      </button>
-                    </div>
-                  </>
-                ) : null}
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

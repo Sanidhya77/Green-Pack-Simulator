@@ -145,8 +145,11 @@ function buildOptions(_seed: number, productKey: string): TrialOption[] {
   ];
 }
 
-function buildPart(part: StudyPart, offset: number): TrialDefinition[] {
-  return products.map((product, idx) => ({
+const PART_A_PRODUCTS = products.slice(0, 5);
+const PART_B_PRODUCTS = products.slice(5, 10);
+
+function buildPart(part: StudyPart, slice: typeof products, offset: number): TrialDefinition[] {
+  return slice.map((product, idx) => ({
     id: `${part}-${product.key}`,
     part,
     indexInPart: idx,
@@ -156,7 +159,24 @@ function buildPart(part: StudyPart, offset: number): TrialDefinition[] {
   }));
 }
 
-export const TRIALS: TrialDefinition[] = [...buildPart("A", 0)];
+export const TRIALS: TrialDefinition[] = [
+  ...buildPart("A", PART_A_PRODUCTS, 0),
+  ...buildPart("B", PART_B_PRODUCTS, 5),
+];
+
+export const PART_A_TRIAL_COUNT = PART_A_PRODUCTS.length;
+export const PART_B_TRIAL_COUNT = PART_B_PRODUCTS.length;
+
+export function partAEndTrialIndex(): number {
+  for (let i = TRIALS.length - 1; i >= 0; i -= 1) {
+    if (TRIALS[i].part === "A") return i;
+  }
+  return -1;
+}
+
+export function partBStartTrialIndex(): number {
+  return TRIALS.findIndex((t) => t.part === "B");
+}
 
 export const REASON_OPTIONS = [
   { value: "price", label: "Price/value for money" },

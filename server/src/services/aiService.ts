@@ -211,3 +211,28 @@ export async function generateTrialFeedback(input: TrialFeedbackInput): Promise<
     return fallbackOutput(input);
   }
 }
+
+export type PartAReviewItemResult = {
+  trialIndex: number;
+  explanation: string;
+};
+
+export async function generatePartAReview(
+  trials: Array<TrialFeedbackInput & { trialIndex: number }>,
+): Promise<{ items: PartAReviewItemResult[]; provider: string; model: string; usedFallback: boolean }> {
+  const items: PartAReviewItemResult[] = [];
+  let usedFallback = false;
+
+  for (const trial of trials) {
+    const feedback = await generateTrialFeedback(trial);
+    items.push({ trialIndex: trial.trialIndex, explanation: feedback.impactAnalysis });
+    if (feedback.usedFallback) usedFallback = true;
+  }
+
+  return {
+    items,
+    provider,
+    model,
+    usedFallback,
+  };
+}

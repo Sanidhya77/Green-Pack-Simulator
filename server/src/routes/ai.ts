@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { db } from "../db/client.js";
-import { generateTrialFeedback } from "../services/aiService.js";
+import { generatePartAReview, generateTrialFeedback } from "../services/aiService.js";
 
 const router = Router();
 
@@ -72,6 +72,64 @@ router.post("/trial-feedback", async (req, res) => {
   return res.json({
     impactAnalysis: feedback.impactAnalysis,
     usedFallback: feedback.usedFallback,
+  });
+});
+
+const partAReviewTrialSchema = z.object({
+  trialIndex: z.number().int().min(0).max(4),
+  productName: z.string().trim().min(1).max(120),
+  productDescription: z.string().trim().min(1).max(240),
+  selectedOptionId: z.string().trim().min(1).max(80),
+  options: z.array(optionSchema).length(3),
+  confidence: z.number().int().min(1).max(5),
+  reasonLabel: z.string().trim().min(1).max(120),
+  reflection: z.string().trim().max(500).optional(),
+});
+
+router.post("/part-a-review", async (req, res) => {
+  const bodySchema = z.object({
+    sessionId: z.string().uuid(),
+    trials: z.array(partAReviewTrialSchema).min(1).max(5),
+  });
+
+  const parsed = bodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid Part A review payload" });
+  }
+
+  const count = requestCounts.get(parsed.data.sessionId) ?? 0;
+  if (count + parsed.data.trials.length > MAX_REQUESTS_PER_SESSION) {
+    return res.status(429).json({ error: "AI request limit reached for this session" });
+  }
+  requestCounts.set(parsed.data.sessionId, count + parsed.data.trials.length);
+
+  const review = await generatePartAReview(
+    parsed.data.trials.map((trial) => ({
+      ...trial,
+      part: "A" as const,
+    })),
+  );
+
+  for (const item of review.items) {
+    const trial = parsed.data.trials.find((t) => t.trialIndex === item.trialIndex);
+    db.prepare(
+      `INSERT INTO ai_explanations
+        (session_id, part, trial_index, provider, model, prompt_excerpt, response_text)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      parsed.data.sessionId,
+      "A",
+      item.trialIndex,
+      review.provider,
+      review.model,
+      trial ? `${trial.productName} | Part A review` : "Part A review",
+      item.explanation,
+    );
+  }
+
+  return res.json({
+    items: review.items,
+    usedFallback: review.usedFallback,
   });
 });
 
