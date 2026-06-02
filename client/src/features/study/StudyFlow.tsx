@@ -1,22 +1,14 @@
 import { useMemo, useState } from "react";
 import { aiApi, studyApi } from "../../lib/api";
+import { loadImageDataUrl } from "../../lib/productImages";
 import { REASON_OPTIONS, TRIALS, type ReasonValue, type TrialOption } from "./trials";
 
-type Stage = "consent" | "baseline" | "trial" | "break" | "final";
+type Stage = "consent" | "trial" | "break" | "final";
+type PostChoiceStep = "questions" | "impact";
 
 type FeedbackEntry = {
   reason: ReasonValue;
   part: "A";
-};
-
-type ImpactInsight = {
-  selected: TrialOption;
-  best: TrialOption;
-  worst: TrialOption;
-  selectedRank: number;
-  isFinalTrial: boolean;
-  isEndOfPartA: boolean;
-  nextEntries: FeedbackEntry[];
 };
 
 function scoreLabel(score: number): string {
@@ -31,16 +23,16 @@ export function StudyFlow() {
   const [trialIndex, setTrialIndex] = useState(0);
   const [participantCode, setParticipantCode] = useState("");
   const [consentChecked, setConsentChecked] = useState(false);
-  const [baseline, setBaseline] = useState<"always" | "often" | "sometimes" | "rarely" | "never">("sometimes");
   const [selectedOption, setSelectedOption] = useState<TrialOption | null>(null);
+  const [postChoiceStep, setPostChoiceStep] = useState<PostChoiceStep | null>(null);
   const [reason, setReason] = useState<ReasonValue>("price");
   const [confidence, setConfidence] = useState(3);
   const [reflection, setReflection] = useState("");
-  const [aiExplanation, setAiExplanation] = useState("");
+  const [impactAnalysis, setImpactAnalysis] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [feedbackEntries, setFeedbackEntries] = useState<FeedbackEntry[]>([]);
-  const [impactInsight, setImpactInsight] = useState<ImpactInsight | null>(null);
 
   const trial = TRIALS[trialIndex];
 
@@ -51,28 +43,28 @@ export function StudyFlow() {
     return `Part ${part} - Trial ${inPart}/${partTotal}`;
   }, [trial]);
 
+  const activePostChoiceStep: PostChoiceStep = postChoiceStep ?? "questions";
+
+  const postChoiceStepLabel = useMemo(() => {
+    if (!selectedOption) return "1";
+    if (activePostChoiceStep === "questions") return "2";
+    return "3";
+  }, [selectedOption, activePostChoiceStep]);
+
+  const reasonLabel = useMemo(
+    () => REASON_OPTIONS.find((item) => item.value === reason)?.label ?? reason,
+    [reason],
+  );
+
   async function startStudy() {
     setError("");
     try {
       setSaving(true);
       const data = await studyApi.startSession(participantCode.trim() || undefined);
       setSessionId(data.sessionId);
-      setStage("baseline");
-    } catch {
-      setError("Could not start session. Check backend server and try again.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function submitBaseline() {
-    setError("");
-    try {
-      setSaving(true);
-      await studyApi.submitBaseline(sessionId, baseline);
       setStage("trial");
     } catch {
-      setError("Could not save baseline response.");
+      setError("Could not start session. Check backend server and try again.");
     } finally {
       setSaving(false);
     }
@@ -81,6 +73,10 @@ export function StudyFlow() {
   async function chooseOption(option: TrialOption) {
     if (!trial) return;
     setError("");
+    setSelectedOption(option);
+    setPostChoiceStep("questions");
+    setImpactAnalysis("");
+
     try {
       setSaving(true);
       await studyApi.submitChoice({
@@ -93,33 +89,20 @@ export function StudyFlow() {
         packagingType: option.packagingType,
         hasGreenLabel: option.hasGreenLabel,
       });
-      setSelectedOption(option);
-
-      if (trial.part === "A") {
-        const ai = await aiApi.getExplanation({
-          sessionId,
-          part: trial.part,
-          trialIndex: trial.indexInPart,
-          productName: trial.productName,
-          productImageUrl: option.imagePath,
-          packagingType: option.packagingType,
-          hasGreenLabel: option.hasGreenLabel,
-          price: option.price,
-        });
-        setAiExplanation(ai.explanation);
-      } else {
-        setAiExplanation("");
-      }
     } catch {
       setError("Could not save your choice. Please try again.");
+      setSelectedOption(null);
+      setPostChoiceStep(null);
     } finally {
       setSaving(false);
     }
   }
 
-  async function submitPostChoice() {
+  async function seeImpact() {
     if (!trial || !selectedOption) return;
     setError("");
+    setAiLoading(true);
+
     try {
       setSaving(true);
       await studyApi.submitFeedback({
@@ -131,52 +114,75 @@ export function StudyFlow() {
         reflection: reflection.trim() || undefined,
       });
 
-      const nextEntries: FeedbackEntry[] = [...feedbackEntries, { reason, part: "A" }];
-      setFeedbackEntries(nextEntries);
+      if (trial.part === "A") {
+        const optionsPayload = await Promise.all(
+          trial.options.map(async (o) => ({
+            optionCode: o.optionCode,
+            optionId: o.id,
+            packagingType: o.packagingType,
+            price: o.price,
+            hasGreenLabel: o.hasGreenLabel,
+            sustainabilityScore: o.sustainabilityScore,
+            imageUrl: o.imagePath,
+            imageDataUrl: await loadImageDataUrl(o.imagePath),
+          })),
+        );
 
-      const isEndOfPartA = trialIndex === TRIALS.length - 1;
-      const isFinalTrial = trialIndex === TRIALS.length - 1;
-      const sorted = [...trial.options].sort((a, b) => b.sustainabilityScore - a.sustainabilityScore);
-      const selectedRank = sorted.findIndex((option) => option.id === selectedOption.id) + 1;
+        const ai = await aiApi.getTrialFeedback({
+          sessionId,
+          part: trial.part,
+          trialIndex: trial.indexInPart,
+          productName: trial.productName,
+          productDescription: trial.productDescription,
+          selectedOptionId: selectedOption.id,
+          confidence,
+          reasonLabel,
+          reflection: reflection.trim() || undefined,
+          options: optionsPayload,
+        });
+        setImpactAnalysis(ai.impactAnalysis);
+        if (ai.usedFallback) {
+          setError("Impact summary is based on study data because AI could not run. Check server and API key.");
+        }
+      } else {
+        const sorted = [...trial.options].sort((a, b) => b.sustainabilityScore - a.sustainabilityScore);
+        const rank = sorted.findIndex((o) => o.id === selectedOption.id) + 1;
+        setImpactAnalysis(
+          `You chose Option ${selectedOption.optionCode}. It ranks #${rank} of 3 for sustainability in this trial. Your main reason was "${reasonLabel}" (confidence ${confidence}/5).`,
+        );
+      }
 
-      setImpactInsight({
-        selected: selectedOption,
-        best: sorted[0],
-        worst: sorted[sorted.length - 1],
-        selectedRank,
-        isFinalTrial,
-        isEndOfPartA,
-        nextEntries,
-      });
+      setPostChoiceStep("impact");
     } catch {
-      setError("Could not save post-choice response.");
+      setError("Could not load impact analysis. Check that the backend is running on port 4000.");
     } finally {
       setSaving(false);
+      setAiLoading(false);
     }
   }
 
-  async function continueAfterImpact() {
-    if (!impactInsight) return;
+  async function continueToNextTrial() {
+    if (!trial || !selectedOption) return;
     setError("");
+
+    const nextEntries: FeedbackEntry[] = [...feedbackEntries, { reason, part: "A" }];
+    setFeedbackEntries(nextEntries);
+
     try {
       setSaving(true);
-      if (impactInsight.isFinalTrial) {
-        const summaryCounts = {
-          priceFocusCount: impactInsight.nextEntries.filter((e) => e.reason === "price").length,
-          sustainabilityFocusCount: impactInsight.nextEntries.filter((e) => e.reason === "sustainability").length,
-          labelFocusCount: impactInsight.nextEntries.filter((e) => e.reason === "label").length,
-          gutFocusCount: impactInsight.nextEntries.filter((e) => e.reason === "gut").length,
-        };
+      if (trialIndex === TRIALS.length - 1) {
         await studyApi.submitSummary({
           sessionId,
-          ...summaryCounts,
+          priceFocusCount: nextEntries.filter((e) => e.reason === "price").length,
+          sustainabilityFocusCount: nextEntries.filter((e) => e.reason === "sustainability").length,
+          labelFocusCount: nextEntries.filter((e) => e.reason === "label").length,
+          gutFocusCount: nextEntries.filter((e) => e.reason === "gut").length,
         });
-        setImpactInsight(null);
         setStage("final");
+        resetTrialState();
         return;
       }
 
-      setImpactInsight(null);
       moveToNextTrial();
     } catch {
       setError("Could not continue to the next trial.");
@@ -185,24 +191,44 @@ export function StudyFlow() {
     }
   }
 
-  function moveToNextTrial() {
+  function resetTrialState() {
     setSelectedOption(null);
-    setAiExplanation("");
+    setPostChoiceStep(null);
+    setImpactAnalysis("");
     setReason("price");
     setConfidence(3);
     setReflection("");
-    setImpactInsight(null);
+    setAiLoading(false);
+  }
+
+  function changeChoice() {
+    resetTrialState();
+    setError("");
+  }
+
+  function moveToNextTrial() {
+    resetTrialState();
     setTrialIndex((v) => v + 1);
   }
+
+  const sustainabilityRank = useMemo(() => {
+    if (!trial || !selectedOption) return null;
+    const sorted = [...trial.options].sort((a, b) => b.sustainabilityScore - a.sustainabilityScore);
+    return {
+      rank: sorted.findIndex((o) => o.id === selectedOption.id) + 1,
+      best: sorted[0],
+      worst: sorted[sorted.length - 1],
+    };
+  }, [trial, selectedOption]);
 
   const headerMeta =
     stage === "trial"
       ? trial
-        ? `ROUND ${trial.indexInPart + 1} / 10\nSTEP ${selectedOption ? "2" : "1"} OF 2`
+        ? selectedOption
+          ? `ROUND ${trial.indexInPart + 1} / 10\nSTEP ${postChoiceStepLabel} OF 3`
+          : `ROUND ${trial.indexInPart + 1} / 10\nSTEP 1 OF 3`
         : "ROUND 10 / 10"
-      : stage === "baseline"
-        ? "BEFORE WE START · 1 QUESTION"
-        : "Scientific Study Build v1";
+      : "Scientific Study Build v1";
 
   const layoutHeader = (
     <header className="layout-topbar">
@@ -216,6 +242,30 @@ export function StudyFlow() {
       <p className="round-meta">{headerMeta}</p>
     </header>
   );
+
+  const pickPanel =
+    trial && selectedOption ? (
+      <aside className="pick-panel">
+        <p className="eyebrow">Your Pick</p>
+        <h3>Option {selectedOption.optionCode}</h3>
+        <div className="product-image-wrap is-pick">
+          <img
+            src={selectedOption.imagePath}
+            alt={`${trial.productName} selected option`}
+            onError={(e) => {
+              e.currentTarget.style.display = "none";
+            }}
+          />
+        </div>
+        <div className="pick-box">
+          <p>Price: €{selectedOption.price.toFixed(2)}</p>
+          <p>{selectedOption.packagingType}</p>
+        </div>
+        <button type="button" className="btn-link pick-change" disabled={saving || aiLoading} onClick={changeChoice}>
+          Choose a different option
+        </button>
+      </aside>
+    ) : null;
 
   if (stage === "consent") {
     return (
@@ -239,7 +289,7 @@ export function StudyFlow() {
               <p className="eyebrow">RTU Research Protocol Context</p>
               <p>This web module is the behavioral decision layer of the wider RTU protocol.</p>
               <ul className="protocol-flow-list">
-                <li>Pre-survey and baseline attitudes</li>
+                <li>Pre-survey and baseline attitudes (separate form)</li>
                 <li>Cultural profiling + eco-label stimulus exposure</li>
                 <li>Choice behavior analysis, paired with iMotions recordings</li>
               </ul>
@@ -288,51 +338,6 @@ export function StudyFlow() {
     );
   }
 
-  if (stage === "baseline") {
-    return (
-      <main className="study-shell">
-        {layoutHeader}
-        <section className="study-card">
-          <header className="study-header">
-            <p className="eyebrow">Baseline Question</p>
-            <h1 className="title">When you go shopping, how often do you think about packaging sustainability?</h1>
-            <p className="subtext">A baseline check. Pick the answer that feels closest to your normal behavior.</p>
-          </header>
-          <div className="baseline-card-list">
-            {(
-              [
-                { value: "never", hint: "I don't think about it." },
-                { value: "rarely", hint: "Only on a special purchase." },
-                { value: "sometimes", hint: "Maybe once a week." },
-                { value: "often", hint: "Most shopping trips." },
-                { value: "always", hint: "It is one of my main criteria." },
-              ] as const
-            ).map((item) => (
-              <button
-                type="button"
-                className={`baseline-card ${baseline === item.value ? "is-selected" : ""}`}
-                onClick={() => setBaseline(item.value)}
-                key={item.value}
-              >
-                <span className="baseline-card-title">
-                  {item.value.charAt(0).toUpperCase()}
-                  {item.value.slice(1)}
-                </span>
-                <span className="baseline-card-hint">{item.hint}</span>
-              </button>
-            ))}
-          </div>
-          <div className="button-row baseline-actions">
-            <button type="button" className="btn-primary" disabled={saving} onClick={submitBaseline}>
-              {saving ? "Saving..." : "Continue to Trials"}
-            </button>
-          </div>
-          {error ? <p className="subtext">{error}</p> : null}
-        </section>
-      </main>
-    );
-  }
-
   if (stage === "break") {
     return (
       <main className="study-shell">
@@ -341,18 +346,10 @@ export function StudyFlow() {
           <header className="study-header">
             <p className="eyebrow">Break</p>
             <h1 className="title">Part A complete</h1>
-            <p className="subtext">
-              Part B is currently paused for this phase of testing.
-            </p>
+            <p className="subtext">Part B is currently paused for this phase of testing.</p>
           </header>
           <div className="button-row">
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => {
-                setStage("final");
-              }}
-            >
+            <button type="button" className="btn-primary" onClick={() => setStage("final")}>
               Continue
             </button>
           </div>
@@ -407,156 +404,151 @@ export function StudyFlow() {
         </header>
 
         {!selectedOption ? (
-          <>
-            <div className="choice-grid">
-              {trial.options.map((option) => (
-                <article className="choice-card" key={option.id}>
-                  <div className="product-image-wrap">
-                    <img
-                      src={option.imagePath}
-                      alt={`${trial.productName} packaging option ${option.optionCode}`}
-                      onError={(e) => {
-                        const target = e.currentTarget;
-                        target.style.display = "none";
-                      }}
-                    />
-                  </div>
-                  <h4>Option {option.optionCode}</h4>
-                  <ul>
-                    <li>Price: €{option.price.toFixed(2)}</li>
-                  </ul>
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    disabled={saving}
-                    onClick={() => chooseOption(option)}
-                  >
-                    Select this option
-                  </button>
-                </article>
-              ))}
-            </div>
-          </>
+          <div className="choice-grid">
+            {trial.options.map((option) => (
+              <article className="choice-card" key={option.id}>
+                <div className="product-image-wrap">
+                  <img
+                    src={option.imagePath}
+                    alt={`${trial.productName} packaging option ${option.optionCode}`}
+                    onError={(e) => {
+                      e.currentTarget.style.display = "none";
+                    }}
+                  />
+                </div>
+                <h4>Option {option.optionCode}</h4>
+                <ul>
+                  <li>Price: €{option.price.toFixed(2)}</li>
+                </ul>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  disabled={saving}
+                  onClick={() => chooseOption(option)}
+                >
+                  {saving ? "Saving..." : "Select this option"}
+                </button>
+              </article>
+            ))}
+          </div>
         ) : (
-          <div className="feedback-layout">
-            <aside className="pick-panel">
-              <p className="eyebrow">Your Pick</p>
-              <h3>Option {selectedOption.optionCode}</h3>
-              <div className="product-image-wrap is-pick">
-                <img
-                  src={selectedOption.imagePath}
-                  alt={`${trial.productName} selected option`}
-                  onError={(e) => {
-                    const target = e.currentTarget;
-                    target.style.display = "none";
-                  }}
-                />
-              </div>
-              <div className="pick-box">
-                <p>Price: €{selectedOption.price.toFixed(2)}</p>
-                <p>Packaging profile: Recorded for impact analysis</p>
-              </div>
-            </aside>
+          <div className="post-choice-flow">
+            <div className="feedback-layout">
+              {pickPanel}
 
-            <div className="feedback-box">
-              {trial.part === "A" ? (
-                <p className="ai-note">
-                  <strong>AI trade-off note:</strong> {aiExplanation || "Generating explanation..."}
-                </p>
-              ) : (
-                <p className="ai-note">
-                  <strong>AI trade-off note:</strong> Hidden in Part B.
-                </p>
-              )}
+              <div className="feedback-box">
+                {activePostChoiceStep === "questions" ? (
+                  <div className="form-grid">
+                    <label className="question-label">How confident are you in this choice?</label>
+                    <div className="confidence-slider">
+                      <input
+                        type="range"
+                        min={1}
+                        max={5}
+                        step={1}
+                        value={confidence}
+                        onChange={(e) => setConfidence(Number(e.target.value))}
+                      />
+                      <div className="confidence-ticks" aria-hidden="true">
+                        {[1, 2, 3, 4, 5].map((point) => (
+                          <span key={point} className={`tick ${confidence === point ? "is-active" : ""}`} />
+                        ))}
+                      </div>
+                    </div>
+                    <div className="scale-labels">
+                      <span>Not at all</span>
+                      <span>A little</span>
+                      <span>Somewhat</span>
+                      <span>Confident</span>
+                      <span>Very confident</span>
+                    </div>
 
-              <div className="form-grid">
-                <label className="question-label">How confident are you in this choice?</label>
-                <div className="confidence-slider">
-                  <input
-                    type="range"
-                    min={1}
-                    max={5}
-                    step={1}
-                    value={confidence}
-                    onChange={(e) => setConfidence(Number(e.target.value))}
-                  />
-                  <div className="confidence-ticks" aria-hidden="true">
-                    {[1, 2, 3, 4, 5].map((point) => (
-                      <span key={point} className={`tick ${confidence === point ? "is-active" : ""}`} />
-                    ))}
+                    <label className="question-label">What mattered most in your decision?</label>
+                    <div className="reason-card-grid">
+                      {REASON_OPTIONS.map((item) => (
+                        <button
+                          key={item.value}
+                          type="button"
+                          className={`reason-card ${reason === item.value ? "is-selected" : ""}`}
+                          onClick={() => setReason(item.value)}
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <label className="field-label">
+                      Reflection (optional)
+                      <textarea
+                        value={reflection}
+                        rows={3}
+                        onChange={(e) => setReflection(e.target.value)}
+                        placeholder="Short note about your choice process..."
+                      />
+                    </label>
+
+                    <div className="button-row">
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        disabled={saving || aiLoading}
+                        onClick={seeImpact}
+                      >
+                        {saving || aiLoading ? "Preparing impact..." : "See impact"}
+                      </button>
+                    </div>
                   </div>
-                </div>
-                <div className="scale-labels">
-                  <span>Not at all</span>
-                  <span>A little</span>
-                  <span>Somewhat</span>
-                  <span>Confident</span>
-                  <span>Very confident</span>
-                </div>
+                ) : null}
 
-                <label className="question-label">What mattered most in your decision?</label>
-                <div className="reason-card-grid">
-                  {REASON_OPTIONS.map((item) => (
-                    <button
-                      key={item.value}
-                      type="button"
-                      className={`reason-card ${reason === item.value ? "is-selected" : ""}`}
-                      onClick={() => setReason(item.value)}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
-
-                <label className="field-label">
-                  Reflection (optional)
-                  <textarea
-                    value={reflection}
-                    rows={3}
-                    onChange={(e) => setReflection(e.target.value)}
-                    placeholder="Short note about your choice process..."
-                  />
-                </label>
-
-                <div className="button-row">
-                  <button type="button" className="btn-primary" disabled={saving} onClick={submitPostChoice}>
-                    {saving ? "Saving..." : "See impact"}
-                  </button>
-                </div>
+                {activePostChoiceStep === "impact" ? (
+                  <>
+                    <section className="impact-panel inline-impact">
+                      <h3>Impact analysis</h3>
+                      <p className="ai-note-body">
+                        {impactAnalysis || "No impact analysis available."}
+                      </p>
+                      {sustainabilityRank ? (
+                        <ul>
+                          <li>
+                            Your choice ranks <strong>#{sustainabilityRank.rank}</strong> of 3 for sustainability (
+                            {scoreLabel(selectedOption.sustainabilityScore)}).
+                          </li>
+                          <li>
+                            Highest in trial: Option {sustainabilityRank.best.optionCode} (
+                            {sustainabilityRank.best.sustainabilityScore}/100)
+                          </li>
+                          <li>
+                            Lowest in trial: Option {sustainabilityRank.worst.optionCode} (
+                            {sustainabilityRank.worst.sustainabilityScore}/100)
+                          </li>
+                        </ul>
+                      ) : null}
+                    </section>
+                    <div className="button-row">
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        disabled={saving || aiLoading}
+                        onClick={() => setPostChoiceStep("questions")}
+                      >
+                        Back
+                      </button>
+                      <button type="button" className="btn-primary" disabled={saving || !impactAnalysis} onClick={continueToNextTrial}>
+                        {saving
+                          ? "Saving..."
+                          : trialIndex === TRIALS.length - 1
+                            ? "Finish study"
+                            : "Continue to next trial"}
+                      </button>
+                    </div>
+                  </>
+                ) : null}
               </div>
             </div>
           </div>
         )}
 
-        {impactInsight ? (
-          <section className="impact-panel">
-            <h3>Impact analysis for this choice</h3>
-            <p>
-              Your selected option ranks <strong>#{impactInsight.selectedRank}</strong> out of 3 for sustainability in this
-              trial.
-            </p>
-            <ul>
-              <li>
-                <strong>Chosen option:</strong> {impactInsight.selected.sustainabilityScore}/100 (
-                {scoreLabel(impactInsight.selected.sustainabilityScore)})
-              </li>
-              <li>
-                <strong>Most sustainable in this trial:</strong> Option {impactInsight.best.optionCode} (
-                {impactInsight.best.sustainabilityScore}/100)
-              </li>
-              <li>
-                <strong>Least sustainable in this trial:</strong> Option {impactInsight.worst.optionCode} (
-                {impactInsight.worst.sustainabilityScore}/100)
-              </li>
-            </ul>
-            <div className="button-row">
-              <button type="button" className="btn-primary" disabled={saving} onClick={continueAfterImpact}>
-                {saving ? "Continuing..." : "Continue to next trial"}
-              </button>
-            </div>
-          </section>
-        ) : null}
-        {error ? <p className="subtext">{error}</p> : null}
+        {error ? <p className="subtext error-text">{error}</p> : null}
       </section>
     </main>
   );

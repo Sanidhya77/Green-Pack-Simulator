@@ -3,7 +3,7 @@
 Web-based sustainable packaging choice simulator with:
 - React study frontend (`client/`)
 - Node + SQLite logging backend (`server/`)
-- Server-side AI trade-off explanation endpoint (ChatGPT key first)
+- Server-side AI trade-off explanation endpoint (OpenAI, vision-enabled)
 
 ## Study flow implemented
 1. Consent + intro
@@ -29,7 +29,7 @@ npm install
 Create `server/.env`:
 ```env
 PORT=4000
-OPENAI_API_KEY=your_chatgpt_api_key_here
+OPENAI_API_KEY=your_openai_api_key_here
 AI_PROVIDER=openai
 AI_MODEL=gpt-4o-mini
 FRONTEND_ORIGIN=http://localhost:5173
@@ -62,8 +62,8 @@ Use this for production study runs:
 2. Deploy `server/` to a Node host (Render/Railway/Fly)
 3. Set backend environment variables:
    - `OPENAI_API_KEY`
-   - `AI_PROVIDER`
-   - `AI_MODEL`
+   - `AI_PROVIDER` (use `openai`)
+   - `AI_MODEL` (e.g. `gpt-4o-mini`)
    - `FRONTEND_ORIGIN` = your Vercel site URL
 4. Set frontend environment variable:
    - `VITE_API_BASE_URL` = your backend URL

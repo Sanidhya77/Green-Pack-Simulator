@@ -16,7 +16,7 @@ const corsOptions = frontendOrigin
   : undefined;
 
 app.use(cors(corsOptions));
-app.use(express.json({ limit: "200kb" }));
+app.use(express.json({ limit: "25mb" }));
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true });

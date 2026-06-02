@@ -1,6 +1,8 @@
 import type { ReasonValue, StudyPart } from "../features/study/trials";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
+const API_BASE =
+  import.meta.env.VITE_API_BASE_URL ??
+  (window.location.hostname === "localhost" ? "http://localhost:4000" : "https://green-pack-simulator.onrender.com");
 
 async function send<T>(path: string, payload: unknown): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -56,14 +58,26 @@ export const studyApi = {
 };
 
 export const aiApi = {
-  getExplanation: (payload: {
+  getTrialFeedback: (payload: {
     sessionId: string;
     part: StudyPart;
     trialIndex: number;
     productName: string;
-    productImageUrl: string;
-    packagingType: string;
-    hasGreenLabel: boolean;
-    price: number;
-  }) => send<{ explanation: string }>("/api/ai/explanation", payload),
+    productDescription: string;
+    selectedOptionId: string;
+    confidence: number;
+    reasonLabel: string;
+    reflection?: string;
+    options: Array<{
+      optionCode: string;
+      optionId: string;
+      packagingType: string;
+      price: number;
+      hasGreenLabel: boolean;
+      sustainabilityScore: number;
+      imageUrl: string;
+      imageDataUrl?: string;
+    }>;
+  }) =>
+    send<{ impactAnalysis: string; usedFallback?: boolean }>("/api/ai/trial-feedback", payload),
 };
