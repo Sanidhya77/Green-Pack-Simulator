@@ -5,6 +5,7 @@ export type TrialRecord = {
   part: StudyPart;
   trialIndex: number;
   productName: string;
+  optionId: string;
   optionCode: string;
   packagingType: string;
   price: number;
@@ -13,6 +14,7 @@ export type TrialRecord = {
   gapVsBest: number;
   reason: ReasonValue;
   confidence: number;
+  reflection?: string;
 };
 
 export type PartMetrics = {
@@ -55,12 +57,14 @@ export function buildTrialRecord(
   option: TrialOption,
   reason: ReasonValue,
   confidence: number,
+  reflection?: string,
 ): TrialRecord {
   const { rank, gapVsBest, selectedScore } = getOptionRankAndGap(trial.options, option.id);
   return {
     part: trial.part,
     trialIndex: trial.indexInPart,
     productName: trial.productName,
+    optionId: option.id,
     optionCode: option.optionCode,
     packagingType: option.packagingType,
     price: option.price,
@@ -69,6 +73,7 @@ export function buildTrialRecord(
     gapVsBest,
     reason,
     confidence,
+    reflection: reflection?.trim() || undefined,
   };
 }
 

@@ -1,3 +1,8 @@
+import {
+  getPackagingBullets,
+  relativeRankLabel,
+  type OptionBulletContext,
+} from "./packagingCache.js";
 import { existsSync, readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
@@ -212,8 +217,140 @@ export async function generateTrialFeedback(input: TrialFeedbackInput): Promise<
   }
 }
 
+function fallbackChoiceFeedback(input: TrialFeedbackInput): string[] {
+  const chosen = selectedOption(input);
+  const rankLabel = relativeRankLabel(
+    chosen.optionId,
+    input.options.map((o) => ({ optionId: o.optionId })),
+  );
+  const greener = input.options.find((o) => o.optionId === "fiber_compostable");
+  const bullets = [
+    `You chose Option ${chosen.optionCode} — the ${rankLabel} of the three options in this trial.`,
+    `Your main reason was "${input.reasonLabel}" (confidence ${input.confidence}/5).`,
+  ];
+
+  if (input.reasonLabel.toLowerCase().includes("price")) {
+    bullets.push(
+      rankLabel === "most sustainable"
+        ? "Even with price in mind, you picked a stronger eco option — compare unit price and pack size next time."
+        : "Cheaper packs often use more virgin plastic; check whether a slightly higher price buys recycled or fiber-based material.",
+    );
+  } else if (input.reasonLabel.toLowerCase().includes("sustainability")) {
+    bullets.push(
+      rankLabel === "most sustainable"
+        ? "Your sustainability focus matched the greenest option — look for the same material cues on future purchases."
+        : "You cared about impact, but a greener pack was available — compare materials side by side before deciding.",
+    );
+  } else if (input.reasonLabel.toLowerCase().includes("label")) {
+    bullets.push(
+      "Eco labels are useful, but also read the material line (recycled content, compostable, or mixed plastic).",
+    );
+  } else {
+    bullets.push(
+      "Gut choices are common — pause to compare material type, recyclability symbols, and whether the label matches the pack.",
+    );
+  }
+
+  bullets.push(
+    "When shopping for eco-friendly packaging, look for: recycled or renewable materials, clear recycling instructions, minimal layers, and third-party eco labels — not just green graphics.",
+  );
+
+  if (rankLabel !== "most sustainable" && greener) {
+    bullets.push(
+      `For a greener pick next time, compare your pack with Option ${greener.optionCode} (${greener.packagingType}) and what its label claims.`,
+    );
+  }
+
+  if (input.reflection?.trim()) {
+    bullets.push(`You noted: "${input.reflection.trim().slice(0, 120)}".`);
+  }
+
+  return bullets.slice(0, 6);
+}
+
+function buildChoiceFeedbackPrompt(
+  input: TrialFeedbackInput,
+  optionSummaries: Array<{ optionCode: string; bullets: string[] }>,
+): string {
+  const chosen = selectedOption(input);
+  const summaries = optionSummaries
+    .map((o) => `Option ${o.optionCode}:\n${o.bullets.map((b) => `- ${b}`).join("\n")}`)
+    .join("\n\n");
+
+  const reflectionLine = input.reflection?.trim()
+    ? input.reflection.trim()
+    : "(no additional reflection provided)";
+
+  return [
+    "You assist an RTU sustainable packaging behavior study.",
+    `Product: ${input.productName}`,
+    `Description: ${input.productDescription}`,
+    "Packaging summaries already shown to the participant:",
+    summaries,
+    "",
+    `Chosen: Option ${chosen.optionCode} (${chosen.packagingType}, €${chosen.price.toFixed(2)}).`,
+    `Main decision reason: ${input.reasonLabel}. Confidence: ${input.confidence}/5.`,
+    `Optional reflection: ${reflectionLine}`,
+    "",
+    'Return JSON only: {"choiceFeedback":["...","..."]}',
+    "Write 4 to 5 bullet strings. Each bullet max 28 words.",
+    "Cover ALL of the following across the bullets:",
+    "1) How sustainable their choice was relative to the other two options (no numeric scores).",
+    "2) How well their stated reason fits what is visible on their chosen pack versus alternatives.",
+    "3) Practical tips: what to look for on packaging when trying to shop more sustainably (materials, labels, recyclability symbols, greenwashing cues).",
+    "4) One concrete suggestion for this product type — what they could compare or check next time.",
+    "5) If a greener option existed, briefly point to what made it different without shaming.",
+    "Use plain language. Be helpful and educational, not moralizing. Do not invent facts not supported by the summaries.",
+  ].join("\n");
+}
+
+async function generateChoiceFeedback(
+  input: TrialFeedbackInput,
+  optionSummaries: Array<{ optionCode: string; bullets: string[] }>,
+): Promise<{ bullets: string[]; usedFallback: boolean }> {
+  if (!client || input.part !== "A") {
+    return { bullets: fallbackChoiceFeedback(input), usedFallback: true };
+  }
+
+  try {
+    const response = await client.responses.create({
+      model,
+      input: [{ role: "user", content: buildChoiceFeedbackPrompt(input, optionSummaries) }],
+      max_output_tokens: 450,
+    });
+
+    const text = response.output_text?.trim() ?? "";
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) {
+      return { bullets: fallbackChoiceFeedback(input), usedFallback: true };
+    }
+
+    const parsed = JSON.parse(match[0]) as { choiceFeedback?: string[] };
+    const bullets = parsed.choiceFeedback?.filter(Boolean).slice(0, 5).map((b) => String(b).trim());
+    if (!bullets?.length) {
+      return { bullets: fallbackChoiceFeedback(input), usedFallback: true };
+    }
+
+    return { bullets, usedFallback: false };
+  } catch (error) {
+    console.error("OpenAI choice feedback failed:", error);
+    return { bullets: fallbackChoiceFeedback(input), usedFallback: true };
+  }
+}
+
+export type PartAReviewOptionResult = {
+  optionCode: string;
+  optionId: string;
+  imageUrl: string;
+  bullets: string[];
+  isSelected: boolean;
+};
+
 export type PartAReviewItemResult = {
   trialIndex: number;
+  options: PartAReviewOptionResult[];
+  choiceFeedback: string[];
+  /** @deprecated legacy field for DB logging */
   explanation: string;
 };
 
@@ -224,9 +361,36 @@ export async function generatePartAReview(
   let usedFallback = false;
 
   for (const trial of trials) {
-    const feedback = await generateTrialFeedback(trial);
-    items.push({ trialIndex: trial.trialIndex, explanation: feedback.impactAnalysis });
-    if (feedback.usedFallback) usedFallback = true;
+    const optionSummaries = trial.options.map((o) => {
+      const ctx: OptionBulletContext = {
+        imagePath: o.imageUrl,
+        packagingType: o.packagingType,
+        hasGreenLabel: o.hasGreenLabel,
+        optionId: o.optionId,
+      };
+      return {
+        optionCode: o.optionCode,
+        optionId: o.optionId,
+        imageUrl: o.imageUrl,
+        bullets: getPackagingBullets(ctx).bullets,
+        isSelected: o.optionId === trial.selectedOptionId,
+      };
+    });
+
+    const summaryForAi = optionSummaries.map((o) => ({
+      optionCode: o.optionCode,
+      bullets: o.bullets,
+    }));
+
+    const choice = await generateChoiceFeedback(trial, summaryForAi);
+    if (choice.usedFallback) usedFallback = true;
+
+    items.push({
+      trialIndex: trial.trialIndex,
+      options: optionSummaries,
+      choiceFeedback: choice.bullets,
+      explanation: [...choice.bullets, ...optionSummaries.flatMap((o) => o.bullets)].join(" | "),
+    });
   }
 
   return {

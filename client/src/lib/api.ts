@@ -80,8 +80,18 @@ export const aiApi = {
       }>;
     }>;
   }) =>
-    send<{ items: Array<{ trialIndex: number; explanation: string }>; usedFallback?: boolean }>(
-      "/api/ai/part-a-review",
-      payload,
-    ),
+    send<{
+      items: Array<{
+        trialIndex: number;
+        options: Array<{
+          optionCode: string;
+          optionId: string;
+          imageUrl: string;
+          bullets: string[];
+          isSelected: boolean;
+        }>;
+        choiceFeedback: string[];
+      }>;
+      usedFallback?: boolean;
+    }>("/api/ai/part-a-review", payload),
 };

@@ -1,3 +1,6 @@
+/** Trial choice grid — export every option image at 3:4 (e.g. 1200×1600) so it fills the slot. */
+export const TRIAL_IMAGE_SIZE = { width: 1200, height: 1600, aspect: "3 / 4" as const };
+
 export type StudyPart = "A" | "B";
 
 export type TrialOption = {
@@ -143,6 +146,51 @@ function buildOptions(_seed: number, productKey: string): TrialOption[] {
       imagePath: images[2],
     },
   ];
+}
+
+const DISPLAY_CODES = ["A", "B", "C"] as const;
+
+function seededRandom(seed: string): () => number {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i += 1) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return () => {
+    h += 0x6d2b79f5;
+    let t = Math.imul(h ^ (h >>> 15), 1 | h);
+    t ^= t + Math.imul(t ^ (t >>> 7), 61 | t);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function shuffleWithSeed<T>(items: T[], seed: string): T[] {
+  const arr = [...items];
+  const rand = seededRandom(seed);
+  for (let i = arr.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rand() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+/** Randomize left-to-right order; relabel slots A/B/C for display only. */
+export function shuffleTrialOptions(options: TrialOption[], seed: string): TrialOption[] {
+  return shuffleWithSeed(options, seed).map((opt, idx) => ({
+    ...opt,
+    optionCode: DISPLAY_CODES[idx],
+  }));
+}
+
+/** Per-session trial list with independently shuffled options (Parts A and B). */
+export function buildSessionTrials(sessionId: string): TrialDefinition[] {
+  return TRIALS.map((trial, globalIndex) => ({
+    ...trial,
+    options: shuffleTrialOptions(
+      trial.options.map((o) => ({ ...o })),
+      `${sessionId}-${globalIndex}`,
+    ),
+  }));
 }
 
 const PART_A_PRODUCTS = products.slice(0, 5);

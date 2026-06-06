@@ -15,6 +15,10 @@ server/.env
 
 # Local data
 server/data/
+!server/data/packaging-image-cache.json
+
+# Vite cache
+client/.vite/
 
 # Logs
 *.log

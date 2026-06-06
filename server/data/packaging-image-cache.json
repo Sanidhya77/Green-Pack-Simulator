@@ -1,0 +1,275 @@
+{
+  "version": 1,
+  "entries": {
+    "/assets/products/Low_Sustainability_Juice.png": {
+      "bullets": [
+        "Clear plastic bottle with a green twist-off cap.",
+        "Label features apple images and clear product name.",
+        "Contains no visible recycling or eco-friendly markings."
+      ],
+      "source": "ai",
+      "updatedAt": "2026-06-06T12:25:17.974Z"
+    },
+    "/assets/products/Medium_Sustainability_Juice.png": {
+      "bullets": [
+        "Carton made from recycled-content plastic materials.",
+        "Label indicates reduced packaging focus.",
+        "Simple design highlights environmental commitment."
+      ],
+      "source": "ai",
+      "updatedAt": "2026-06-06T12:25:21.902Z"
+    },
+    "/assets/products/High_Sustainability_Juice.png": {
+      "bullets": [
+        "Transparent bottle made from 75% recycled glass.",
+        "Label features natural graphics and eco-friendly messaging.",
+        "Packaging clearly indicates recyclable and compostable traits."
+      ],
+      "source": "ai",
+      "updatedAt": "2026-06-06T12:25:24.680Z"
+    },
+    "/assets/products/coldbrew-standard.png": {
+      "bullets": [
+        "Aluminum can with vibrant blue finish for visibility.",
+        "Clear labels providing product details and sustainability message.",
+        "Easily recyclable material, promoting environmental mindfulness."
+      ],
+      "source": "ai",
+      "updatedAt": "2026-06-06T12:25:26.678Z"
+    },
+    "/assets/products/coldbrew-recycled.png": {
+      "bullets": [
+        "Made from recycled aluminum, promoting circular economy.",
+        "Labels emphasize refreshment and everyday use.",
+        "Infinitely recyclable, reducing environmental impact."
+      ],
+      "source": "ai",
+      "updatedAt": "2026-06-06T12:25:29.673Z"
+    },
+    "/assets/products/coldbrew-fiber.png": {
+      "bullets": [
+        "Made from fiber-based compostable materials.",
+        "Features clear recycling labels for responsible disposal.",
+        "Environmental focus highlighted with leaf and recycling icons."
+      ],
+      "source": "ai",
+      "updatedAt": "2026-06-06T12:25:32.513Z"
+    },
+    "/assets/products/notebook-standard.png": {
+      "bullets": [
+        "Standard plastic packaging",
+        "No green label visible",
+        "Usually the least eco-friendly option in a three-pack set"
+      ],
+      "source": "template",
+      "updatedAt": "2026-06-06T12:25:34.523Z"
+    },
+    "/assets/products/notebook-recycled.png": {
+      "bullets": [
+        "Made from recycled-content plastic for eco-friendly packaging.",
+        "Features FSC certification for responsible sourcing and materials.",
+        "Minimalistic design reduces waste and promotes sustainability."
+      ],
+      "source": "ai",
+      "updatedAt": "2026-06-06T12:25:36.288Z"
+    },
+    "/assets/products/notebook-fiber.png": {
+      "bullets": [
+        "Made from sturdy, earthy fiber-based material.",
+        "Features clear, bold branding with minimalistic design.",
+        "Compostable packaging promotes eco-friendly disposal options."
+      ],
+      "source": "ai",
+      "updatedAt": "2026-06-06T12:25:39.354Z"
+    },
+    "/assets/products/shampoo-standard.png": {
+      "bullets": [
+        "Made from standard plastic material for durability.",
+        "Simple label design enhances product visibility.",
+        "Recyclable packaging promotes environmental friendliness."
+      ],
+      "source": "ai",
+      "updatedAt": "2026-06-06T12:25:41.175Z"
+    },
+    "/assets/products/shampoo-recycled.png": {
+      "bullets": [
+        "Bottle made from recycled-content plastic.",
+        "Simple, modern label design enhances brand visibility.",
+        "Eco-friendly focus indicated through packaging choice."
+      ],
+      "source": "ai",
+      "updatedAt": "2026-06-06T12:25:43.573Z"
+    },
+    "/assets/products/shampoo-fiber.png": {
+      "bullets": [
+        "Made from molded paper pulp for eco-friendly use.",
+        "Simple, modern label promoting sustainability.",
+        "Compostable packaging reduces environmental impact significantly."
+      ],
+      "source": "ai",
+      "updatedAt": "2026-06-06T12:25:46.308Z"
+    },
+    "/assets/products/noodles-standard.png": {
+      "bullets": [
+        "Made from standard plastic material for easy handling.",
+        "Bold, colorful labels indicate chicken flavor and quick preparation.",
+        "Container likely not recyclable, contributing to environmental waste."
+      ],
+      "source": "ai",
+      "updatedAt": "2026-06-06T12:25:50.346Z"
+    },
+    "/assets/products/noodles-recycled.png": {
+      "bullets": [
+        "Cup made from recycled-content plastic material.",
+        "Clear labeling indicates chicken flavor and cooking time.",
+        "Recyclable packaging promotes environmental responsibility."
+      ],
+      "source": "ai",
+      "updatedAt": "2026-06-06T12:25:54.235Z"
+    },
+    "/assets/products/noodles-fiber.png": {
+      "bullets": [
+        "Made from sugarcane fiber for compostable packaging.",
+        "Clear labeling emphasizes plant-based ingredients.",
+        "Instructions highlight quick preparation in three minutes."
+      ],
+      "source": "ai",
+      "updatedAt": "2026-06-06T12:25:56.458Z"
+    },
+    "/assets/products/trailmix-standard.png": {
+      "bullets": [
+        "Standard plastic packaging with resealable top for freshness.",
+        "Nut and fruit blend prominently displayed on front label.",
+        "No artificial ingredients, highlighting natural and healthy options."
+      ],
+      "source": "ai",
+      "updatedAt": "2026-06-06T12:25:59.080Z"
+    },
+    "/assets/products/trailmix-recycled.png": {
+      "bullets": [
+        "Made with recycled-content plastic for eco-friendliness.",
+        "Clear labeling highlights natural ingredients and absence of artificial additives.",
+        "Resealable pouch keeps trail mix fresh for longer enjoyment."
+      ],
+      "source": "ai",
+      "updatedAt": "2026-06-06T12:26:02.324Z"
+    },
+    "/assets/products/trailmix-fiber.png": {
+      "bullets": [
+        "Made from fiber-based, compostable materials for eco-friendliness.",
+        "Clear window showcases the nut and berry mix inside.",
+        "Simple, bold labeling emphasizes natural ingredients without artificial additives."
+      ],
+      "source": "ai",
+      "updatedAt": "2026-06-06T12:26:04.742Z"
+    },
+    "/assets/products/yogurt-standard.png": {
+      "bullets": [
+        "Made from standard plastic for easy handling and recycling.",
+        "Clear labeling for nonfat Greek yogurt with nutritional information.",
+        "Minimalist design emphasizes product contents and promotes eco-friendly perception."
+      ],
+      "source": "ai",
+      "updatedAt": "2026-06-06T12:26:07.668Z"
+    },
+    "/assets/products/yogurt-recycled.png": {
+      "bullets": [
+        "Cup made from recycled-content plastic material.",
+        "Clear labeling for nonfat Greek yogurt variety.",
+        "Environmental focus emphasized with recycling symbol on packaging."
+      ],
+      "source": "ai",
+      "updatedAt": "2026-06-06T12:26:09.876Z"
+    },
+    "/assets/products/yogurt-fiber.png": {
+      "bullets": [
+        "Made from plant-based, compostable fiber materials.",
+        "Label emphasizes nutrition and environmental friendliness.",
+        "Recyclable packaging highlights sustainable sourcing practices."
+      ],
+      "source": "ai",
+      "updatedAt": "2026-06-06T12:26:12.155Z"
+    },
+    "/assets/products/granola-standard.png": {
+      "bullets": [
+        "Standard plastic wrapper with vibrant orange and white design.",
+        "Clear labeling highlights non-GMO and whole grain ingredients.",
+        "Recyclable packaging noted, promoting environmental consciousness."
+      ],
+      "source": "ai",
+      "updatedAt": "2026-06-06T12:26:14.644Z"
+    },
+    "/assets/products/granola-recycled.png": {
+      "bullets": [
+        "Packaging made from recycled-content plastic material.",
+        "Features clear labeling for non-GMO ingredients.",
+        "Recycling instructions indicate store drop-off options."
+      ],
+      "source": "ai",
+      "updatedAt": "2026-06-06T12:26:16.760Z"
+    },
+    "/assets/products/granola-fiber.png": {
+      "bullets": [
+        "Made from brown paper-like material for eco-friendliness.",
+        "Prominent labels indicate compostable packaging features.",
+        "Plant-based wrapper suggests minimal environmental impact."
+      ],
+      "source": "ai",
+      "updatedAt": "2026-06-06T12:26:20.162Z"
+    },
+    "/assets/products/pens-standard.png": {
+      "bullets": [
+        "Clear plastic packaging showcases colorful pens clearly.",
+        "Labels indicate pen type and medium point size.",
+        "Recyclable packaging promotes environmental responsibility."
+      ],
+      "source": "ai",
+      "updatedAt": "2026-06-06T12:26:22.276Z"
+    },
+    "/assets/products/pens-recycled.png": {
+      "bullets": [
+        "Clear plastic packaging visible, likely made from recycled materials.",
+        "Label promotes bright colors and variety in pen choices.",
+        "Eco-friendly packaging emphasizes sustainable and recyclable content."
+      ],
+      "source": "ai",
+      "updatedAt": "2026-06-06T12:26:24.427Z"
+    },
+    "/assets/products/pens-fiber.png": {
+      "bullets": [
+        "Compostable cardboard packaging promotes eco-friendly disposal.",
+        "Recyclable symbol indicates commitment to sustainable materials.",
+        "Natural fiber design suggests minimal environmental impact."
+      ],
+      "source": "ai",
+      "updatedAt": "2026-06-06T12:26:27.018Z"
+    },
+    "/assets/products/grocerybag-standard.png": {
+      "bullets": [
+        "Made from glossy, durable plastic material.",
+        "Features a white label with recycling symbol.",
+        "Reusable design promotes longer lifespan over single-use bags."
+      ],
+      "source": "ai",
+      "updatedAt": "2026-06-06T12:26:29.276Z"
+    },
+    "/assets/products/grocerybag-recycled.png": {
+      "bullets": [
+        "Made from recycled-content plastic material.",
+        "Features a prominent brand label on the front.",
+        "Eco-friendly design promotes sustainable shopping habits."
+      ],
+      "source": "ai",
+      "updatedAt": "2026-06-06T12:26:32.470Z"
+    },
+    "/assets/products/grocerybag-fiber.png": {
+      "bullets": [
+        "Made from durable, natural fiber material.",
+        "Features eco-friendly compostable packaging.",
+        "Simple design with clear branding for easy identification."
+      ],
+      "source": "ai",
+      "updatedAt": "2026-06-06T12:26:34.792Z"
+    }
+  }
+}

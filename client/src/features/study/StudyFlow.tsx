@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import { aiApi, studyApi } from "../../lib/api";
-import { loadImageDataUrl } from "../../lib/productImages";
 import {
   buildComparisonTable,
   buildTrialRecord,
@@ -11,11 +10,13 @@ import {
 import {
   PART_A_TRIAL_COUNT,
   PART_B_TRIAL_COUNT,
+  buildSessionTrials,
   partAEndTrialIndex,
   partBStartTrialIndex,
   REASON_OPTIONS,
   TRIALS,
   type ReasonValue,
+  type TrialDefinition,
   type TrialOption,
 } from "./trials";
 
@@ -24,11 +25,16 @@ type Stage = "consent" | "trial" | "partAReview" | "partBIntro" | "final";
 type PartAReviewCard = {
   trialIndex: number;
   productName: string;
-  optionCode: string;
-  imagePath: string;
-  packagingType: string;
-  price: number;
-  explanation: string;
+  selectedOptionCode: string;
+  options: Array<{
+    optionCode: string;
+    imageUrl: string;
+    bullets: string[];
+    isSelected: boolean;
+  }>;
+  choiceFeedback: string[];
+  reasonLabel: string;
+  confidence: number;
 };
 
 export function StudyFlow() {
@@ -44,10 +50,11 @@ export function StudyFlow() {
   const [trialHistory, setTrialHistory] = useState<TrialRecord[]>([]);
   const [partAReviewCards, setPartAReviewCards] = useState<PartAReviewCard[]>([]);
   const [partAReviewLoading, setPartAReviewLoading] = useState(false);
+  const [sessionTrials, setSessionTrials] = useState<TrialDefinition[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const trial = TRIALS[trialIndex];
+  const trial = sessionTrials?.[trialIndex] ?? null;
   const partAEndIndex = partAEndTrialIndex();
   const partBStartIndex = partBStartTrialIndex();
 
@@ -69,6 +76,7 @@ export function StudyFlow() {
       setSaving(true);
       const data = await studyApi.startSession(participantCode.trim() || undefined);
       setSessionId(data.sessionId);
+      setSessionTrials(buildSessionTrials(data.sessionId));
       setStage("trial");
     } catch {
       setError("Could not start session. Check backend server and try again.");
@@ -103,24 +111,23 @@ export function StudyFlow() {
   }
 
   async function buildPartAReviewPayload(record: TrialRecord) {
-    const trialDef = TRIALS.find((t) => t.part === "A" && t.indexInPart === record.trialIndex);
+    if (!sessionTrials) throw new Error("Session trials not loaded");
+
+    const trialDef = sessionTrials.find((t) => t.part === "A" && t.indexInPart === record.trialIndex);
     if (!trialDef) throw new Error("Trial not found");
 
-    const chosen = trialDef.options.find((o) => o.optionCode === record.optionCode);
+    const chosen = trialDef.options.find((o) => o.id === record.optionId);
     if (!chosen) throw new Error("Option not found");
 
-    const optionsPayload = await Promise.all(
-      trialDef.options.map(async (o) => ({
-        optionCode: o.optionCode,
-        optionId: o.id,
-        packagingType: o.packagingType,
-        price: o.price,
-        hasGreenLabel: o.hasGreenLabel,
-        sustainabilityScore: o.sustainabilityScore,
-        imageUrl: o.imagePath,
-        imageDataUrl: await loadImageDataUrl(o.imagePath),
-      })),
-    );
+    const optionsPayload = trialDef.options.map((o) => ({
+      optionCode: o.optionCode,
+      optionId: o.id,
+      packagingType: o.packagingType,
+      price: o.price,
+      hasGreenLabel: o.hasGreenLabel,
+      sustainabilityScore: o.sustainabilityScore,
+      imageUrl: o.imagePath,
+    }));
 
     return {
       trialIndex: record.trialIndex,
@@ -129,6 +136,7 @@ export function StudyFlow() {
       selectedOptionId: chosen.id,
       confidence: record.confidence,
       reasonLabel: reasonLabel(record.reason),
+      reflection: record.reflection,
       options: optionsPayload,
     };
   }
@@ -142,19 +150,15 @@ export function StudyFlow() {
       const review = await aiApi.getPartAReview({ sessionId, trials: trialsPayload });
 
       const cards: PartAReviewCard[] = records.map((record) => {
-        const trialDef = TRIALS.find((t) => t.part === "A" && t.indexInPart === record.trialIndex)!;
-        const chosen = trialDef.options.find((o) => o.optionCode === record.optionCode)!;
-        const explanation =
-          review.items.find((i) => i.trialIndex === record.trialIndex)?.explanation ??
-          "Explanation unavailable.";
+        const item = review.items.find((i) => i.trialIndex === record.trialIndex);
         return {
           trialIndex: record.trialIndex,
           productName: record.productName,
-          optionCode: record.optionCode,
-          imagePath: chosen.imagePath,
-          packagingType: record.packagingType,
-          price: record.price,
-          explanation,
+          selectedOptionCode: record.optionCode,
+          options: item?.options ?? [],
+          choiceFeedback: item?.choiceFeedback ?? [],
+          reasonLabel: reasonLabel(record.reason),
+          confidence: record.confidence,
         };
       });
 
@@ -166,16 +170,29 @@ export function StudyFlow() {
       setError("Could not load Part A review. Check that the backend is running.");
       setPartAReviewCards(
         records.map((record) => {
-          const trialDef = TRIALS.find((t) => t.part === "A" && t.indexInPart === record.trialIndex)!;
-          const chosen = trialDef.options.find((o) => o.optionCode === record.optionCode)!;
+          const trialDef = sessionTrials!.find((t) => t.part === "A" && t.indexInPart === record.trialIndex)!;
+          const rank =
+            record.sustainabilityRank === 1
+              ? "most sustainable"
+              : record.sustainabilityRank === 3
+                ? "least sustainable"
+                : "middle option";
           return {
             trialIndex: record.trialIndex,
             productName: record.productName,
-            optionCode: record.optionCode,
-            imagePath: chosen.imagePath,
-            packagingType: record.packagingType,
-            price: record.price,
-            explanation: `You chose Option ${record.optionCode} (${record.packagingType}) at €${record.price.toFixed(2)}. Sustainability rank #${record.sustainabilityRank} of 3.`,
+            selectedOptionCode: record.optionCode,
+            options: trialDef.options.map((o) => ({
+              optionCode: o.optionCode,
+              imageUrl: o.imagePath,
+              bullets: [o.packagingType, o.hasGreenLabel ? "Eco label visible" : "No eco label"],
+              isSelected: o.id === record.optionId,
+            })),
+            choiceFeedback: [
+              `You chose Option ${record.optionCode} — the ${rank} of the three options.`,
+              `Your main reason was "${reasonLabel(record.reason)}" (confidence ${record.confidence}/5).`,
+            ],
+            reasonLabel: reasonLabel(record.reason),
+            confidence: record.confidence,
           };
         }),
       );
@@ -199,7 +216,7 @@ export function StudyFlow() {
         reflection: reflection.trim() || undefined,
       });
 
-      const record = buildTrialRecord(trial, selectedOption, reason, confidence);
+      const record = buildTrialRecord(trial, selectedOption, reason, confidence, reflection);
       const newHistory = [...trialHistory, record];
       setTrialHistory(newHistory);
       resetTrialState();
@@ -366,7 +383,8 @@ export function StudyFlow() {
             {unifiedHeaderTop("Part A · Review")}
             <h1 className="title title--page">Your five choices — AI review</h1>
             <p className="subtext">
-              Below is feedback on each product you selected in Part A. Take your time before continuing.
+              Compare all three options, then read personalized tips on your choice and what to look for when
+              shopping sustainably.
             </p>
           </header>
 
@@ -376,17 +394,43 @@ export function StudyFlow() {
             <div className="part-a-review-list">
               {partAReviewCards.map((card) => (
                 <article className="part-a-review-card" key={card.trialIndex}>
-                  <div className="part-a-review-image">
-                    <img src={card.imagePath} alt={card.productName} />
-                  </div>
-                  <div className="part-a-review-text">
+                  <header className="part-a-review-head">
                     <h3>
                       Trial {card.trialIndex + 1}: {card.productName}
                     </h3>
                     <p className="review-meta">
-                      You chose Option {card.optionCode} · €{card.price.toFixed(2)} · {card.packagingType}
+                      You chose Option {card.selectedOptionCode} · {card.reasonLabel} · confidence{" "}
+                      {card.confidence}/5
                     </p>
-                    <p className="ai-note-body">{card.explanation}</p>
+                  </header>
+
+                  <div className="part-a-review-options">
+                    {card.options.map((opt) => (
+                      <div
+                        className={`part-a-review-option ${opt.isSelected ? "is-selected" : ""}`}
+                        key={opt.optionCode}
+                      >
+                        <div className="part-a-review-option-image">
+                          <img src={opt.imageUrl} alt={`Option ${opt.optionCode}`} />
+                          {opt.isSelected ? <span className="review-pick-badge">Your choice</span> : null}
+                        </div>
+                        <p className="part-a-review-option-label">Option {opt.optionCode}</p>
+                        <ul className="review-bullet-list">
+                          {opt.bullets.map((bullet) => (
+                            <li key={bullet}>{bullet}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="part-a-review-choice-feedback">
+                    <p className="review-section-label">About your choice</p>
+                    <ul className="review-bullet-list review-bullet-list--emphasis">
+                      {card.choiceFeedback.map((bullet) => (
+                        <li key={bullet}>{bullet}</li>
+                      ))}
+                    </ul>
                   </div>
                 </article>
               ))}

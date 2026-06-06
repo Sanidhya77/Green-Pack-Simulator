@@ -7,7 +7,9 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "generate:images": "node scripts/generate-product-images.mjs"
+    "generate:images": "node scripts/generate-product-images.mjs",
+    "generate:packaging-cache": "node scripts/generate-packaging-cache.mjs",
+    "generate:packaging-cache:ai": "node scripts/generate-packaging-cache.mjs --ai"
   },
   "keywords": [],
   "author": "",
